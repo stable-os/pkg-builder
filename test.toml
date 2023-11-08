@@ -1,0 +1,17 @@
+[package]
+name = 'pkg-builder'
+version = '0.1.0'
+description = 'StableOS Package Builder'
+license = 'GPL-3.0-or-later'
+
+[[source]]
+source = 'https://github.com/stable-os/pkg-builder.git'
+
+[build]
+script = '''
+set -euxo pipefail
+
+cargo build --release
+mkdir -p $out/bin
+cp target/release/pkg-builder $out/bin
+'''
