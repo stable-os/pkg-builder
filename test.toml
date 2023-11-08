@@ -12,6 +12,6 @@ script = '''
 set -euxo pipefail
 
 cargo build --release
-mkdir -p $out/bin
-cp target/release/pkg-builder $out/bin
+mkdir -p $OUT/bin
+cp target/release/pkg-builder $OUT/bin
 '''

@@ -34,6 +34,10 @@ fn main() {
         env::var("PKGBUILDER_PKGFILE_PATH").unwrap_or_else(|_| panic!("No file path provided"))
     });
 
+    let output_path = env::args().nth(2).unwrap_or_else(|| {
+        env::var("PKGBUILDER_OUTPUT_PATH").unwrap_or_else(|_| panic!("No output path provided"))
+    });
+
     let mut file = File::open(&file_path).expect("Unable to open the file");
     let mut contents = String::new();
     file.read_to_string(&mut contents)
@@ -42,7 +46,7 @@ fn main() {
     let package_file: PkgFile = toml::from_str(&contents).expect("Unable to parse the TOML file");
     println!("{:#?}", package_file);
 
-    let build_dir = setup_build_environment(&package_file);
+    let (build_dir, out_dir) = setup_build_environment(&package_file);
 
     // execute build script in build directory
     match package_file.build {
@@ -51,6 +55,7 @@ fn main() {
                 .arg("-c")
                 .arg(build.script)
                 .current_dir(&build_dir)
+                .env("OUT", &out_dir)
                 .output()
                 .expect("Failed to execute command");
 
@@ -63,9 +68,43 @@ fn main() {
         }
         None => println!("No build script to execute"),
     }
+
+    // copy package file to out directory as package.toml
+    let package_file_path = format!("{}/package.toml", &out_dir);
+    fs::copy(&file_path, &package_file_path).expect("Unable to copy package file");
+
+    // tar out directory
+    let tar_file_path = format!("{}/{}.tar.gz", &out_dir, &package_file.package.name);
+    let output = Command::new("tar")
+        .arg("-czvf")
+        .arg(&tar_file_path)
+        .arg("./")
+        .current_dir(&out_dir)
+        .output()
+        .expect("Failed to execute command");
+
+    if !output.status.success() {
+        eprintln!(
+            "Compression failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // copy tar file to output path
+    fs::copy(&tar_file_path, &output_path).expect("Unable to copy tar file");
+
+    // remove build directory
+    fs::remove_dir_all(&build_dir).expect("Unable to remove build directory");
+    println!("Removed build directory: {}", build_dir);
+
+    // remove out directory
+    fs::remove_dir_all(&out_dir).expect("Unable to remove out directory");
+    println!("Removed out directory: {}", out_dir);
+
+    println!("Package built successfully");
 }
 
-fn setup_build_environment(pkgfile: &PkgFile) -> String {
+fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
     // get unix timestamp
     let timestamp = chrono::Utc::now().timestamp();
 
@@ -76,6 +115,14 @@ fn setup_build_environment(pkgfile: &PkgFile) -> String {
     );
     fs::create_dir_all(&build_dir).expect("Unable to create build directory");
     println!("Created build directory: {}", build_dir);
+
+    // create out directory in /tmp
+    let out_dir = format!(
+        "/tmp/pkgbuilder/build_{}_{}_{}_out",
+        pkgfile.package.name, pkgfile.package.version, timestamp
+    );
+    fs::create_dir_all(&out_dir).expect("Unable to create out directory");
+    println!("Created out directory: {}", out_dir);
 
     match pkgfile.source {
         Some(ref sources) => {
@@ -108,5 +155,7 @@ fn setup_build_environment(pkgfile: &PkgFile) -> String {
         None => println!("No sources to clone"),
     }
 
-    return build_dir;
+    println!("Build environment setup successfully");
+
+    return (build_dir, out_dir);
 }
