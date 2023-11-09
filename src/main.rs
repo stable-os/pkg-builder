@@ -1,5 +1,10 @@
 use serde::Deserialize;
-use std::{env, fs, fs::File, io::Read, process::Command};
+use std::{
+    env, fs,
+    fs::File,
+    io::{self, Read},
+    process::{Command, Stdio},
+};
 use toml;
 
 #[derive(Debug, Deserialize)]
@@ -52,19 +57,31 @@ fn main() {
     // execute build script in build directory
     match package_file.build {
         Some(build) => {
-            let output = Command::new("sh")
+            let mut child = Command::new("bash")
                 .arg("-c")
                 .arg(build.script)
                 .current_dir(&build_dir)
                 .env("OUT", &out_dir)
-                .output()
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
                 .expect("Failed to execute command");
 
-            if !output.status.success() {
-                eprintln!(
-                    "Build script failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
+            let mut stdout = child.stdout.take().expect("Failed to capture stdout");
+            let mut stderr = child.stderr.take().expect("Failed to capture stderr");
+
+            std::thread::spawn(move || {
+                io::copy(&mut stdout, &mut io::stdout()).expect("Failed to copy stdout");
+            });
+
+            std::thread::spawn(move || {
+                io::copy(&mut stderr, &mut io::stderr()).expect("Failed to copy stderr");
+            });
+
+            let output = child.wait().expect("Failed to wait on child");
+
+            if !output.success() {
+                eprintln!("Build script failed");
             }
         }
         None => println!("No build script to execute"),
