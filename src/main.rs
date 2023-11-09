@@ -20,6 +20,7 @@ struct PkgFilePackage {
 #[derive(Debug, Deserialize)]
 struct PkgFileSource {
     source: String,
+    git_ref: Option<String>,
     // default is root of the build directory
     destination: Option<String>,
 }
@@ -27,7 +28,6 @@ struct PkgFileSource {
 #[derive(Debug, Deserialize)]
 struct PkgFileBuild {
     script: String,
-    commit: Option<String>,
 }
 
 fn main() {
@@ -153,25 +153,22 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                 }
 
                 // checkout commit if specified
-                match pkgfile.build {
-                    Some(ref build) => match build.commit {
-                        Some(ref commit) => {
-                            let output = Command::new("git")
-                                .arg("checkout")
-                                .arg(commit)
-                                .output()
-                                .expect("Failed to execute command");
+                match source.git_ref {
+                    Some(ref commit) => {
+                        let output = Command::new("git")
+                            .arg("checkout")
+                            .arg(commit)
+                            .output()
+                            .expect("Failed to execute command");
 
-                            if !output.status.success() {
-                                eprintln!(
-                                    "Git checkout failed: {}",
-                                    String::from_utf8_lossy(&output.stderr)
-                                );
-                            }
+                        if !output.status.success() {
+                            eprintln!(
+                                "Git checkout failed: {}",
+                                String::from_utf8_lossy(&output.stderr)
+                            );
                         }
-                        None => println!("No commit to checkout"),
-                    },
-                    None => println!("No build script to execute"),
+                    }
+                    None => println!("No commit to checkout"),
                 }
             }
         }
