@@ -87,12 +87,14 @@ fn main() {
         None => println!("No build script to execute"),
     }
 
+    println!("Build script executed successfully, packaging...");
+
     // copy package file to out directory as package.toml
     let package_file_path = format!("{}/package.toml", &out_dir);
     fs::copy(&file_path, &package_file_path).expect("Unable to copy package file");
 
     // tar out directory
-    let tar_file_path = format!("{}/{}.tar.gz", &out_dir, &package_file.package.name);
+    let tar_file_path = format!("/tmp/{}.tar.gz", &package_file.package.name);
     let output = Command::new("tar")
         .arg("-czvf")
         .arg(&tar_file_path)
