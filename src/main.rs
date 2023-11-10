@@ -167,6 +167,10 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                         Some(_) => "--branch",
                         None => "",
                     })
+                    .arg(match source.git_ref {
+                        Some(ref git_ref) => git_ref,
+                        None => "",
+                    })
                     .arg(source_url)
                     .arg(&destination)
                     .output()
