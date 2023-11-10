@@ -159,6 +159,14 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
 
                 let output = Command::new("git")
                     .arg("clone")
+                    // don't copy all the history
+                    .arg("--depth")
+                    .arg("1")
+                    // if a git_ref is specified, add the --branch flag
+                    .arg(match source.git_ref {
+                        Some(_) => "--branch",
+                        None => "",
+                    })
                     .arg(source_url)
                     .arg(&destination)
                     .output()
@@ -169,25 +177,6 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                         "Git clone failed: {}",
                         String::from_utf8_lossy(&output.stderr)
                     );
-                }
-
-                // checkout commit if specified
-                match source.git_ref {
-                    Some(ref commit) => {
-                        let output = Command::new("git")
-                            .arg("checkout")
-                            .arg(commit)
-                            .output()
-                            .expect("Failed to execute command");
-
-                        if !output.status.success() {
-                            eprintln!(
-                                "Git checkout failed: {}",
-                                String::from_utf8_lossy(&output.stderr)
-                            );
-                        }
-                    }
-                    None => println!("No commit to checkout"),
                 }
             }
         }
