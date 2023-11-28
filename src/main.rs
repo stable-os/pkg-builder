@@ -82,6 +82,7 @@ fn main() {
 
             if !output.success() {
                 eprintln!("Build script failed");
+                panic!("Build script failed");
             }
         }
         None => println!("No build script to execute"),
@@ -153,34 +154,72 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                     None => build_dir.clone(),
                 };
 
-                println!("Cloning {} into {}", source_url, &destination);
+                if source_url.ends_with(".git") {
+                    println!("Cloning {} into {}", source_url, &destination);
 
-                // Yes, we can use the git2 crate, but that increases build time, bundle size and complexity
+                    // Yes, we can use the git2 crate, but that increases build time, bundle size and complexity
 
-                let output = Command::new("git")
-                    .arg("clone")
-                    // don't copy all the history
-                    .arg("--depth")
-                    .arg("1")
-                    // if a git_ref is specified, add the --branch flag
-                    .arg(match source.git_ref {
-                        Some(_) => "--branch",
-                        None => "",
-                    })
-                    .arg(match source.git_ref {
-                        Some(ref git_ref) => git_ref,
-                        None => "",
-                    })
-                    .arg(source_url)
-                    .arg(&destination)
-                    .output()
-                    .expect("Failed to execute command");
+                    let output = Command::new("git")
+                        .arg("clone")
+                        // don't copy all the history
+                        .arg("--depth")
+                        .arg("1")
+                        // if a git_ref is specified, add the --branch flag
+                        .arg(match source.git_ref {
+                            Some(_) => "--branch",
+                            None => "",
+                        })
+                        .arg(match source.git_ref {
+                            Some(ref git_ref) => git_ref,
+                            None => "",
+                        })
+                        .arg(source_url)
+                        .arg(&destination)
+                        .output()
+                        .expect("Failed to execute command");
 
-                if !output.status.success() {
-                    eprintln!(
-                        "Git clone failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    if !output.status.success() {
+                        eprintln!(
+                            "Git clone failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+
+                if source_url.ends_with(".tar.gz") || source_url.ends_with(".tar.bz2") {
+                    println!("Downloading {} into {}", source_url, &destination);
+
+                    let output = Command::new("curl")
+                        .arg("-L")
+                        .arg(source_url)
+                        .arg("-o")
+                        .arg(format!("{}.tmpdownload", &destination))
+                        .output()
+                        .expect("Failed to execute command");
+
+                    if !output.status.success() {
+                        eprintln!(
+                            "Download failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+
+                    println!("Extracting {} into {}", source_url, &destination);
+
+                    let output = Command::new("tar")
+                        .arg("-xvf")
+                        .arg(format!("{}.tmpdownload", &destination))
+                        .arg("-C")
+                        .arg(&destination)
+                        .output()
+                        .expect("Failed to execute command");
+
+                    if !output.status.success() {
+                        eprintln!(
+                            "Extraction failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
                 }
             }
         }
