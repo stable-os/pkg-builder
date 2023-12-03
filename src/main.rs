@@ -187,6 +187,7 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                 }
 
                 if source_url.ends_with(".tar.gz")
+                    || source_url.ends_with(".tgz")
                     || source_url.ends_with(".tar.bz2")
                     || source_url.ends_with(".tar.xz")
                 {
