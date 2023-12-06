@@ -59,7 +59,7 @@ fn main() {
         Some(build) => {
             let mut child = Command::new("bash")
                 .arg("-c")
-                .arg(build.script)
+                .arg(format!("source /root/.bashrc\n\n{}", build.script))
                 .current_dir(&build_dir)
                 .env("OUT", &out_dir)
                 .stdout(Stdio::piped())
