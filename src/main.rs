@@ -225,6 +225,42 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                         );
                     }
                 }
+
+                if source_url.ends_with(".zip") {
+                    println!("Downloading {} into {}", source_url, &destination);
+
+                    let output = Command::new("curl")
+                        .arg("-L")
+                        .arg(source_url)
+                        .arg("-o")
+                        .arg(format!("{}.tmpdownload", &destination))
+                        .output()
+                        .expect("Failed to execute command");
+
+                    if !output.status.success() {
+                        eprintln!(
+                            "Download failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+
+                    println!("Extracting {} into {}", source_url, &destination);
+
+                    let output = Command::new("unzip")
+                        .arg("-o")
+                        .arg(format!("{}.tmpdownload", &destination))
+                        .arg("-d")
+                        .arg(&destination)
+                        .output()
+                        .expect("Failed to execute command");
+
+                    if !output.status.success() {
+                        eprintln!(
+                            "Extraction failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
             }
         }
         None => println!("No sources to clone"),
