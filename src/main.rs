@@ -26,6 +26,7 @@ struct PkgFilePackage {
 struct PkgFileSource {
     source: String,
     git_ref: Option<String>,
+    git_commit: Option<String>,
     // default is root of the build directory
     destination: Option<String>,
 }
@@ -183,6 +184,24 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                             "Git clone failed: {}",
                             String::from_utf8_lossy(&output.stderr)
                         );
+                    }
+
+                    // run git reset --hard if a git_commit is specified
+                    if let Some(ref git_commit) = source.git_commit {
+                        let output = Command::new("git")
+                            .arg("reset")
+                            .arg("--hard")
+                            .arg(git_commit)
+                            .current_dir(&destination)
+                            .output()
+                            .expect("Failed to execute command");
+
+                        if !output.status.success() {
+                            eprintln!(
+                                "Git reset failed: {}",
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
                     }
                 }
 
