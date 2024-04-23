@@ -99,6 +99,9 @@ fn main() {
 
     println!("Build script executed successfully, packaging...");
 
+    // create final output directory
+    fs::create_dir_all(&output_path).expect("Unable to create output directory");
+
     if let Some(subpackages) = package_file.subpackage {
         for subpackage in subpackages {
             println!("Handling subpackage: {:#?}", subpackage);
@@ -152,6 +155,37 @@ fn main() {
             }
 
             println!("Moved files to subpackage directory: {}", subpackage_dir);
+
+            // Copy package file to subpackage directory
+            fs::copy(&file_path, &format!("{}/package.toml", subpackage_dir))
+                .expect("Unable to copy package file to subpackage directory");
+
+            // Create a tarball of the subpackage directory
+            let tarball_name = format!("{}/{}.tar.gz", &output_path, subpackage.name);
+            let output = Command::new("tar")
+                .arg("-czf")
+                .arg(&tarball_name)
+                .arg("./")
+                .current_dir(&subpackage_dir)
+                .output()
+                .expect("Failed to create tarball");
+
+            if !output.status.success() {
+                eprintln!(
+                    "Failed to create tarball: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                continue;
+            }
+
+            println!("Created tarball for subpackage: {}", tarball_name);
+
+            // Remove subpackage directory
+            fs::remove_dir_all(&subpackage_dir).expect("Unable to remove subpackage directory");
+
+            // Copy tarball to final output directory
+            fs::copy(&tarball_name, &format!("{}/{}", &output_path, tarball_name))
+                .expect("Unable to copy tarball to output directory");
         }
     }
 
@@ -162,51 +196,6 @@ fn main() {
         .arg(&format!("{}/{}", package_dir, package_file.package.name))
         .output()
         .expect("Failed to move files from out directory to package directory");
-
-    // create final output directory
-    fs::create_dir_all(&output_path).expect("Unable to create output directory");
-
-    // copy package file to all package's folders as package.toml
-    let folders = fs::read_dir(&package_dir).expect("Unable to read package directory");
-    for folder in folders {
-        let folder = folder.expect("Unable to read folder");
-        let folder_path = folder.path();
-        if folder_path.is_dir() {
-            fs::copy(
-                &file_path,
-                &format!("{}/package.toml", folder_path.display()),
-            )
-            .expect("Unable to copy package file");
-        }
-
-        // tar out directory
-        let tar_file_path = format!("/tmp/{}.tar.gz", folder.file_name().to_str().unwrap());
-        let output = Command::new("tar")
-            .arg("-czvf")
-            .arg(&tar_file_path)
-            .arg("./")
-            .current_dir(&package_dir)
-            .output()
-            .expect("Failed to execute command");
-
-        if !output.status.success() {
-            eprintln!(
-                "Compression failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        // move tar file to output directory
-        fs::copy(
-            &tar_file_path,
-            &format!(
-                "{}/{}.tar.gz",
-                output_path,
-                folder.file_name().to_str().unwrap()
-            ),
-        )
-        .expect("Unable to copy tar file");
-    }
 
     // remove build directory
     fs::remove_dir_all(&build_dir).expect("Unable to remove build directory");
