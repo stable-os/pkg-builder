@@ -10,6 +10,7 @@ use toml;
 #[derive(Debug, Deserialize)]
 struct PkgFile {
     package: PkgFilePackage,
+    subpackage: Option<Vec<PkgFileSubPackage>>,
     source: Option<Vec<PkgFileSource>>,
     build: Option<PkgFileBuild>,
 }
@@ -20,6 +21,13 @@ struct PkgFilePackage {
     version: String,
     description: String,
     license: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PkgFileSubPackage {
+    name: String,
+    description: String,
+    files: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,7 +61,7 @@ fn main() {
     let package_file: PkgFile = toml::from_str(&contents).expect("Unable to parse the TOML file");
     println!("{:#?}", package_file);
 
-    let (build_dir, out_dir) = setup_build_environment(&package_file);
+    let (build_dir, out_dir, package_dir) = setup_build_environment(&package_file);
 
     // execute build script in build directory
     match package_file.build {
@@ -91,8 +99,72 @@ fn main() {
 
     println!("Build script executed successfully, packaging...");
 
+    if let Some(subpackages) = package_file.subpackage {
+        for subpackage in subpackages {
+            println!("Handling subpackage: {:#?}", subpackage);
+
+            // create a seperate direcotry for subpackage
+            let subpackage_dir = format!("{}/{}", &package_dir, subpackage.name);
+            fs::create_dir_all(&subpackage_dir).expect("Unable to create subpackage directory");
+
+            // move files to subpackage directory
+            // files in a subpackage shouldn't be in the main package
+            for file_selector in subpackage.files {
+                // the file_selector is a relative glob pattern
+                // so it must be expanded to get the actual file paths
+                let output = Command::new("sh")
+                    .arg("-c")
+                    .arg(format!(
+                        "shopt -s nullglob; shopt -s dotglob; echo {}{}",
+                        out_dir, file_selector
+                    ))
+                    .current_dir(&build_dir)
+                    .output()
+                    .expect("Failed to execute command");
+
+                if !output.status.success() {
+                    eprintln!(
+                        "Failed to expand file selector: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    continue;
+                }
+
+                let files = String::from_utf8_lossy(&output.stdout);
+                let files = files.split_whitespace().collect::<Vec<&str>>();
+
+                for file in files {
+                    // remove the out directory from the file path
+                    let file = file.replace(&out_dir, "");
+
+                    // create the directory structure in the subpackage directory
+                    let file_dir = file.rsplitn(2, '/').last().unwrap();
+                    let file_dir = format!("{}/{}", &subpackage_dir, file_dir);
+                    fs::create_dir_all(&file_dir).expect("Unable to create file directory");
+
+                    println!("Moving file: {}", file);
+                    Command::new("mv")
+                        .arg(format!("{}{}", out_dir, file))
+                        .arg(format!("{}{}", &subpackage_dir, file))
+                        .output()
+                        .expect("Failed to move files to subpackage directory");
+                }
+            }
+
+            println!("Moved files to subpackage directory: {}", subpackage_dir);
+        }
+    }
+
+    // Move the remaining files from the out directory to the package directory
+    // in a subfolder named after the package name
+    Command::new("mv")
+        .arg(&out_dir)
+        .arg(&format!("{}/{}", package_dir, package_file.package.name))
+        .output()
+        .expect("Failed to move files from out directory to package directory");
+
     // copy package file to out directory as package.toml
-    let package_file_path = format!("{}/package.toml", &out_dir);
+    let package_file_path = format!("{}/package.toml", &package_dir);
     fs::copy(&file_path, &package_file_path).expect("Unable to copy package file");
 
     // tar out directory
@@ -101,7 +173,7 @@ fn main() {
         .arg("-czvf")
         .arg(&tar_file_path)
         .arg("./")
-        .current_dir(&out_dir)
+        .current_dir(&package_dir)
         .output()
         .expect("Failed to execute command");
 
@@ -119,14 +191,16 @@ fn main() {
     fs::remove_dir_all(&build_dir).expect("Unable to remove build directory");
     println!("Removed build directory: {}", build_dir);
 
-    // remove out directory
-    fs::remove_dir_all(&out_dir).expect("Unable to remove out directory");
-    println!("Removed out directory: {}", out_dir);
+    // remove package directory
+    fs::remove_dir_all(&package_dir).expect("Unable to remove package directory");
+    println!("Removed package directory: {}", package_dir);
+
+    // Out directory got moved into package directory, does not have to be deleted
 
     println!("Package built successfully");
 }
 
-fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
+fn setup_build_environment(pkgfile: &PkgFile) -> (String, String, String) {
     // get unix timestamp
     let timestamp = chrono::Utc::now().timestamp();
 
@@ -146,6 +220,14 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
     fs::create_dir_all(&out_dir).expect("Unable to create out directory");
     println!("Created out directory: {}", out_dir);
 
+    // create package directory in /tmp
+    let package_dir = format!(
+        "/tmp/pkgbuilder/build_{}_{}_{}_package",
+        pkgfile.package.name, pkgfile.package.version, timestamp
+    );
+    fs::create_dir_all(&package_dir).expect("Unable to create package directory");
+    println!("Created package directory: {}", package_dir);
+
     match pkgfile.source {
         Some(ref sources) => {
             for source in sources {
@@ -158,24 +240,18 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
                 if source_url.ends_with(".git") {
                     println!("Cloning {} into {}", source_url, &destination);
 
-                    // Yes, we can use the git2 crate, but that increases build time, bundle size and complexity
-
                     let output = Command::new("git")
                         .arg("clone")
                         // don't copy all the history
                         .arg("--depth")
                         .arg("1")
                         // if a git_ref is specified, add the --branch flag
-                        .arg(match source.git_ref {
-                            Some(_) => "--branch",
-                            None => "",
-                        })
-                        .arg(match source.git_ref {
-                            Some(ref git_ref) => git_ref,
-                            None => "",
+                        .args(match source.git_ref {
+                            Some(ref git_ref) => vec!["--branch", git_ref],
+                            None => vec![],
                         })
                         .arg(source_url)
-                        .arg(&destination)
+                        .arg(destination.clone())
                         .output()
                         .expect("Failed to execute command");
 
@@ -287,5 +363,5 @@ fn setup_build_environment(pkgfile: &PkgFile) -> (String, String) {
 
     println!("Build environment setup successfully");
 
-    return (build_dir, out_dir);
+    return (build_dir, out_dir, package_dir);
 }

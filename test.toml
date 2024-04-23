@@ -4,6 +4,16 @@ version = '0.1.0'
 description = 'StableOS Package Builder'
 license = 'GPL-3.0-or-later'
 
+[[subpackage]]
+name = 'pkg-builder-test'
+description = 'Test file in /usr/bin'
+files = ['/usr/bin/t*']
+
+[[subpackage]]
+name = 'pkg-builder-share-test'
+description = 'Test file in /usr/share/pkg-builder'
+files = ['/usr/share/pkg-builder']
+
 [[source]]
 source = 'https://github.com/stable-os/pkg-builder.git'
 
@@ -12,6 +22,16 @@ script = '''
 set -euxo pipefail
 
 cargo build --release
-mkdir -p $OUT/bin
-cp target/release/pkg-builder $OUT/bin
+mkdir -p $OUT/usr/bin
+cp target/release/pkg-builder $OUT/usr/bin
+
+cat > $OUT/usr/bin/test <<EOF
+test
+EOF
+
+mkdir -pv $OUT/usr/share/pkg-builder
+
+cat > $OUT/usr/share/pkg-builder/test <<EOF
+test
+EOF
 '''
