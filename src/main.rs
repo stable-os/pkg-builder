@@ -163,29 +163,50 @@ fn main() {
         .output()
         .expect("Failed to move files from out directory to package directory");
 
-    // copy package file to out directory as package.toml
-    let package_file_path = format!("{}/package.toml", &package_dir);
-    fs::copy(&file_path, &package_file_path).expect("Unable to copy package file");
+    // create final output directory
+    fs::create_dir_all(&output_path).expect("Unable to create output directory");
 
-    // tar out directory
-    let tar_file_path = format!("/tmp/{}.tar.gz", &package_file.package.name);
-    let output = Command::new("tar")
-        .arg("-czvf")
-        .arg(&tar_file_path)
-        .arg("./")
-        .current_dir(&package_dir)
-        .output()
-        .expect("Failed to execute command");
+    // copy package file to all package's folders as package.toml
+    let folders = fs::read_dir(&package_dir).expect("Unable to read package directory");
+    for folder in folders {
+        let folder = folder.expect("Unable to read folder");
+        let folder_path = folder.path();
+        if folder_path.is_dir() {
+            fs::copy(
+                &file_path,
+                &format!("{}/package.toml", folder_path.display()),
+            )
+            .expect("Unable to copy package file");
+        }
 
-    if !output.status.success() {
-        eprintln!(
-            "Compression failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        // tar out directory
+        let tar_file_path = format!("/tmp/{}.tar.gz", folder.file_name().to_str().unwrap());
+        let output = Command::new("tar")
+            .arg("-czvf")
+            .arg(&tar_file_path)
+            .arg("./")
+            .current_dir(&package_dir)
+            .output()
+            .expect("Failed to execute command");
+
+        if !output.status.success() {
+            eprintln!(
+                "Compression failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        // move tar file to output directory
+        fs::copy(
+            &tar_file_path,
+            &format!(
+                "{}/{}.tar.gz",
+                output_path,
+                folder.file_name().to_str().unwrap()
+            ),
+        )
+        .expect("Unable to copy tar file");
     }
-
-    // copy tar file to output path
-    fs::copy(&tar_file_path, &output_path).expect("Unable to copy tar file");
 
     // remove build directory
     fs::remove_dir_all(&build_dir).expect("Unable to remove build directory");
